@@ -62,7 +62,7 @@ assert not missing_cols, f"컬럼명 확인 필요: {missing_cols} / 실제 컬�
 
 WEATHER = [COLS[k] for k in ["temp", "wind", "humid", "rain"]]
 df = raw[[COLS["date"], COLS["time"]] + WEATHER].copy()
-df["date"] = pd.to_datetime(df[COLS["date"]])
+df["date"] = pd.to_datetime(df[COLS["date"]].astype(str), format="%Y%m%d")  # 원본은 20210101 형식 정수
 df["month"] = df["date"].dt.month
 print("기간:", df["date"].min().date(), "~", df["date"].max().date(), "/ 일수:", df["date"].dt.date.nunique())
 
@@ -143,6 +143,27 @@ rain_tbl["강수일수(하루 중 0초과 1회 이상)"] = (
     df[df[rain] > 0].groupby("season", observed=True)["date"].apply(lambda s: s.dt.date.nunique())
 )
 print("\n[강수량 보조]\n", rain_tbl.to_string())
+
+# %% 7-1. 보조 점검: 습도 상한값 쏠림
+humid = COLS["humid"]
+print("습도 상위값 분포:", df[humid].value_counts().sort_index().tail(4).to_dict())
+print(f"습도 = 최댓값({df[humid].max()}) 행: {(df[humid] == df[humid].max()).sum()}"
+      f" ({(df[humid] == df[humid].max()).mean():.1%})")
+
+# %% 7-2. 보조 점검: 강수량이 '시간당'인지 '일 누적'인지
+# 일 누적값이라면 값이 줄어드는 시점은 하루가 바뀌는 시점(리셋)에만 나타나야 한다.
+prev = df[rain].shift()
+drops = df[df[rain] < prev].assign(직전값=prev)
+print("직전 시간보다 값이 줄어든 횟수:", len(drops))
+print("감소가 일어난 시각 분포:", drops[COLS["time"]].value_counts().to_dict())
+for h in [0, 1]:
+    dd = drops[drops[COLS["time"]] == h]["date"]
+    print(f"  {h}시 감소: {len(dd)}회, 기간 {dd.min().date()} ~ {dd.max().date()}")
+print("\n0·1시 외 감소 (리셋으로 설명되지 않는 경우):")
+print(drops[~drops[COLS["time"]].isin([0, 1])][["date", COLS["time"], "직전값", rain]].to_string(index=False))
+print("\n예시 3/1~3/2 (0이 아닌 값):")
+ex = df[df["date"].between("2021-03-01", "2021-03-02") & (df[rain] > 0)]
+print(ex[["date", COLS["time"], rain]].to_string(index=False))
 
 # %% 8. 그래프: 계절별 분포 박스플롯
 fig, axes = plt.subplots(1, 4, figsize=(16, 4))
